@@ -1,0 +1,205 @@
+HireMate AI - Project Directory Structure
+==========================================
+
+project/
+│
+├── 📄 Configuration Files
+│   ├── package.json                 # Node.js dependencies and scripts
+│   ├── package-lock.json            # Locked dependency versions
+│   ├── tsconfig.json                # TypeScript configuration
+│   ├── tsconfig.app.json            # App-specific TypeScript config
+│   ├── tsconfig.node.json           # Node-specific TypeScript config
+│   ├── vite.config.ts               # Vite build configuration
+│   ├── tailwind.config.js           # Tailwind CSS configuration
+│   ├── postcss.config.js            # PostCSS configuration
+│   ├── eslint.config.js             # ESLint configuration
+│   ├── .gitignore                   # Git ignore rules
+│   ├── .env                         # Environment variables (Supabase)
+│   └── .env.example                 # Environment template
+│
+├── 📜 Documentation Files
+│   ├── README.md                    # Main project documentation
+│   ├── QUICK_START.md               # Quick setup guide
+│   ├── BACKEND_SETUP.md             # Backend configuration guide
+│   ├── DEPLOYMENT_CHECKLIST.md      # Pre-deployment checklist
+│   ├── PROJECT_SUMMARY.md           # Complete project overview
+│   ├── FEATURES_CHECKLIST.md        # All features verification
+│   ├── DIRECTORY_STRUCTURE.txt      # This file
+│   └── PLACE_BACKEND_HERE.txt       # Backend placement instructions
+│
+├── 🚀 Startup Scripts
+│   ├── start.sh                     # Linux/Mac startup script
+│   └── start.bat                    # Windows startup script
+│
+├── 🐍 Backend (Place Your File Here)
+│   └── backend.py                   # ⚠️ YOU NEED TO PLACE THIS FILE HERE
+│
+├── 📦 Dependencies (Auto-generated)
+│   └── node_modules/                # Node.js packages (created by npm install)
+│
+├── 🏗️ Build Output (Auto-generated)
+│   └── dist/                        # Production build (created by npm run build)
+│
+├── 📁 Source Code
+│   └── src/
+│       │
+│       ├── 📄 Entry Points
+│       │   ├── main.tsx             # Application entry point
+│       │   ├── App.tsx              # Main app component with routing
+│       │   └── vite-env.d.ts        # Vite type definitions
+│       │
+│       ├── 🎨 Styles
+│       │   └── index.css            # Global styles and animations
+│       │
+│       ├── 📄 Pages
+│       │   ├── HomePage.tsx         # Landing page (Page 1)
+│       │   ├── ResumeAnalyzer.tsx   # Resume upload & analysis (Page 2)
+│       │   ├── InterviewScreen.tsx  # Interview Q&A (Page 3)
+│       │   └── ResultsPage.tsx      # Evaluation results (Page 4)
+│       │
+│       ├── ⚙️ Configuration
+│       │   └── config/
+│       │       └── api.ts           # API endpoints configuration
+│       │
+│       ├── 📐 Types
+│       │   └── types/
+│       │       └── index.ts         # TypeScript interfaces
+│       │
+│       └── 🛠️ Utilities
+│           └── utils/
+│               └── pdfGenerator.ts  # PDF generation utility
+│
+└── 🌐 Static Assets
+    └── index.html                   # HTML entry point
+
+
+Key Directories Explained
+==========================
+
+📁 src/pages/
+   Contains all page components for the 4-page flow:
+   1. HomePage - Landing with "Start Interview" button
+   2. ResumeAnalyzer - Upload and analyze resume
+   3. InterviewScreen - AI interview with Q&A
+   4. ResultsPage - Scores and evaluation
+
+📁 src/config/
+   API endpoint configuration
+   - Centralized API URLs
+   - Easy to update for production
+
+📁 src/types/
+   TypeScript type definitions
+   - API response interfaces
+   - Component prop types
+   - Type safety throughout app
+
+📁 src/utils/
+   Utility functions
+   - PDF generation logic
+   - Reusable helper functions
+
+
+Important Files
+===============
+
+🐍 backend.py
+   YOUR BACKEND FILE GOES IN PROJECT ROOT
+   This is the FastAPI server with:
+   - Resume analysis endpoint
+   - Question generation endpoint
+   - Text-to-speech endpoint
+   - Speech-to-text endpoint
+   - Evaluation endpoint
+
+📄 package.json
+   Defines:
+   - Project dependencies
+   - npm scripts (dev, build, lint)
+   - Project metadata
+
+🚀 start.sh / start.bat
+   Convenience scripts to start both:
+   - Backend server (port 8000)
+   - Frontend dev server (port 5173)
+
+📜 README.md
+   Main documentation with:
+   - Setup instructions
+   - Usage guide
+   - Technology stack
+   - Troubleshooting
+
+
+Build Artifacts (Auto-generated)
+=================================
+
+📦 node_modules/
+   Created by: npm install
+   Contains: All Node.js dependencies
+   Size: ~300 MB
+   Note: Not committed to git
+
+🏗️ dist/
+   Created by: npm run build
+   Contains: Production-ready files
+   - Optimized JavaScript bundle
+   - Processed CSS
+   - HTML entry point
+   Size: ~210 KB (gzipped)
+
+
+File Count
+==========
+
+Source Files:
+- 4 Page components (.tsx)
+- 1 Main app component (.tsx)
+- 1 Entry point (.tsx)
+- 1 API config (.ts)
+- 1 Types file (.ts)
+- 1 Utility file (.ts)
+- 1 CSS file (.css)
+Total: 10 source files
+
+Documentation:
+- 8 markdown/text files
+
+Configuration:
+- 10 config files
+
+Scripts:
+- 2 startup scripts
+
+Backend:
+- 1 Python file (YOU PROVIDE THIS)
+
+Total Project Files: ~31 (excluding node_modules and dist)
+
+
+URLs After Starting
+===================
+
+Frontend:  http://localhost:5173
+Backend:   http://localhost:8000
+API Docs:  http://localhost:8000/docs
+
+
+Quick Start
+===========
+
+1. Place backend.py in project root
+2. npm install
+3. pip install [dependencies from BACKEND_SETUP.md]
+4. export GEMINI_API_KEY="your-key"
+5. ./start.sh (or start.bat on Windows)
+6. Open http://localhost:5173
+
+
+For More Information
+====================
+
+See README.md for complete documentation
+See QUICK_START.md for fast setup
+See BACKEND_SETUP.md for backend details
+See PROJECT_SUMMARY.md for full overview

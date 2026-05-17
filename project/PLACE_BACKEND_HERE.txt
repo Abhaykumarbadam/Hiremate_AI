@@ -1,0 +1,68 @@
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║                   📁 BACKEND FILE LOCATION                        ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+IMPORTANT: Place your backend.py file in THIS directory!
+
+The backend.py file should be placed at:
+    project/backend.py
+
+This directory structure should look like:
+
+    project/
+    ├── backend.py          ← PLACE YOUR BACKEND.PY HERE
+    ├── package.json
+    ├── package-lock.json
+    ├── src/
+    ├── node_modules/
+    └── ...
+
+────────────────────────────────────────────────────────────────────
+
+NEXT STEPS:
+
+1. Copy your backend.py file to this directory
+
+2. Set your Google Gemini API key:
+
+   Linux/Mac:
+   export GEMINI_API_KEY="your-api-key-here"
+
+   Windows:
+   set GEMINI_API_KEY=your-api-key-here
+
+3. Install Python dependencies:
+   pip install fastapi uvicorn pyttsx3 speechrecognition google-generativeai pdfminer.six python-multipart
+
+4. Install Node.js dependencies:
+   npm install
+
+5. Run the application:
+
+   Easy way (recommended):
+   ./start.sh        (Linux/Mac)
+   start.bat         (Windows)
+
+   Manual way:
+   Terminal 1: python backend.py
+   Terminal 2: npm run dev
+
+6. Open browser to: http://localhost:5173
+
+────────────────────────────────────────────────────────────────────
+
+DOCUMENTATION:
+
+- README.md                 → Full project documentation
+- QUICK_START.md            → Fast setup guide
+- BACKEND_SETUP.md          → Backend configuration details
+- DEPLOYMENT_CHECKLIST.md   → Pre-deployment checklist
+- PROJECT_SUMMARY.md        → Complete project overview
+
+────────────────────────────────────────────────────────────────────
+
+For help, check the README.md file or QUICK_START.md
+
+Happy interviewing! 🚀
