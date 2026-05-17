@@ -1,0 +1,3 @@
+# Root-level dependencies (app lives in project/)
+node_modules/
+package-lock.json

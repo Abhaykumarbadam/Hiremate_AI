@@ -60,12 +60,35 @@ const InterviewScreen = () => {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to generate questions');
+      const data: QuestionGenerationResponse | null = await response
+        .json()
+        .catch(() => null);
 
-      const data: QuestionGenerationResponse = await response.json();
+      if (!response.ok) {
+        const detail =
+          (data as { detail?: string; message?: string } | null)?.detail ||
+          (data as { message?: string } | null)?.message ||
+          `Server error (${response.status})`;
+        throw new Error(
+          typeof detail === 'string' ? detail : 'Failed to generate questions'
+        );
+      }
+
+      if (!data?.questions?.length) {
+        throw new Error('No interview questions were returned');
+      }
+
       setQuestions(data.questions);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate questions');
+      if (err instanceof TypeError) {
+        setError(
+          'Cannot reach the backend at http://localhost:8000. Start it with: python backendmp.py'
+        );
+      } else {
+        setError(
+          err instanceof Error ? err.message : 'Failed to generate questions'
+        );
+      }
     } finally {
       setLoading(false);
     }

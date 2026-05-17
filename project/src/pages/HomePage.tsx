@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import Lottie from "lottie-react";
-import animationData from "../assets/animations/LandingPageAnim.json"; // your exact path
+import animationData from "../assets/animations/originalhome.json";
 
 const HomePage = () => {
   const navigate = useNavigate();

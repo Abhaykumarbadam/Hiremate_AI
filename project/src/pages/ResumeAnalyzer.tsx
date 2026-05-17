@@ -144,12 +144,32 @@ for (let i = 0; i < COUNT; i++) {
         body: formPayload,
       });
 
-      if (!response.ok) throw new Error('Failed to analyze resume');
+      const data = await response.json().catch(() => null);
 
-      const data = await response.json();
+      if (!response.ok) {
+        const detail =
+          (data && (data.detail || data.message)) ||
+          `Server error (${response.status})`;
+        throw new Error(
+          typeof detail === 'string' ? detail : 'Failed to analyze resume'
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || 'Failed to analyze resume');
+      }
+
       setResumeResults(data);
     } catch (err) {
-      setError('Error analyzing resume');
+      if (err instanceof TypeError) {
+        setError(
+          'Cannot reach the backend at http://localhost:8000. Start it with: python backendmp.py'
+        );
+      } else {
+        setError(
+          err instanceof Error ? err.message : 'Error analyzing resume'
+        );
+      }
     } finally {
       setLoading(false);
     }
