@@ -602,11 +602,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
+_DEFAULT_CORS = (
+    "http://localhost:5173,http://localhost:5174,"
+    "http://127.0.0.1:5173,http://127.0.0.1:5174"
+)
 ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", _DEFAULT_CORS).split(",")
+    if origin.strip()
 ]
 
 app.add_middleware(
