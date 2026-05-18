@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, Loader2, ArrowRight } from 'lucide-react';
+import { Upload, FileText, Video } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 import type { ResumeEvaluationResponse } from '../types';
+import ElectricBackground from '../components/ElectricBackground';
+import PageContainer from '../components/layout/PageContainer';
+import { Button, Card, Badge } from '../components/ui';
+import { cn } from '../lib/cn';
 
 const ResumeAnalyzer = () => {
   const navigate = useNavigate();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [formData, setFormData] = useState({
     company: '',
@@ -16,103 +19,9 @@ const ResumeAnalyzer = () => {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [resumeResults, setResumeResults] = useState<ResumeEvaluationResponse | null>(null);
+  const [videoInterview, setVideoInterview] = useState(false);
   const [error, setError] = useState('');
 
-  // ⚡ ELECTRIC BACKGROUND EFFECT — React Official Way
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-
-    resize();
-    window.addEventListener("resize", resize);
-
-    const dots: any[] = [];
-    const COUNT = 60;
-
-    for (let i = 0; i < COUNT; i++) {
-      dots.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        r: Math.random() * 2 + 1,
-        vx: (Math.random() - 0.5) * 0.6,
-        vy: (Math.random() - 0.5) * 0.6,
-      });
-    }
-
-    const animate = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      dots.forEach((dot) => {
-        ctx.beginPath();
-        ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
-        ctx.fillStyle = "#0fffe6";
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = "#0fffe6";
-        ctx.fill();
-
-        dot.x += dot.vx * 4.0;
-        dot.y += dot.vy * 4.0;
-
-        if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
-        if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
-      });
-
-      // ELECTRICAL LINES
-      // ELECTRIC LINES — MAXIMUM NEON GLOW
-for (let i = 0; i < COUNT; i++) {
-  for (let j = i + 1; j < COUNT; j++) {
-
-    const dx = dots[i].x - dots[j].x;
-    const dy = dots[i].y - dots[j].y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist < 80) {
-
-      // ONLY NEON CYAN
-      const color = "rgba(0, 255, 255, ALPHA)";
-
-      // BRIGHTNESS BOOST (same as before)
-      const alpha = Math.min(4.5 - dist / 80, 3.5);
-
-      ctx.beginPath();
-      ctx.moveTo(dots[i].x, dots[i].y);
-      ctx.lineTo(dots[j].x, dots[j].y);
-
-      ctx.strokeStyle = color.replace("ALPHA", alpha);
-
-      // MAXIMUM GLOW SETTINGS
-      ctx.lineWidth = 3.5;
-      ctx.shadowBlur = 260;
-      ctx.shadowColor = ctx.strokeStyle;
-
-      // Makes neon glow brighter by color blending
-      ctx.globalCompositeOperation = "lighter";
-
-      ctx.stroke();
-
-      ctx.globalCompositeOperation = "source-over";
-    }
-  }
-}
-
-
-
-      requestAnimationFrame(animate);
-    };
-
-    animate();
-
-    return () => window.removeEventListener("resize", resize);
-  }, []);
-
-  // File upload handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -126,7 +35,6 @@ for (let i = 0; i < COUNT; i++) {
     setError('');
   };
 
-  // Resume analyzing handler
   const handleAnalyzeResume = async () => {
     if (!resumeFile || !formData.role) {
       setError('Please upload a resume and enter job role');
@@ -148,11 +56,8 @@ for (let i = 0; i < COUNT; i++) {
 
       if (!response.ok) {
         const detail =
-          (data && (data.detail || data.message)) ||
-          `Server error (${response.status})`;
-        throw new Error(
-          typeof detail === 'string' ? detail : 'Failed to analyze resume'
-        );
+          (data && (data.detail || data.message)) || `Server error (${response.status})`;
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to analyze resume');
       }
 
       if (!data?.success) {
@@ -166,17 +71,15 @@ for (let i = 0; i < COUNT; i++) {
           'Cannot reach the backend at http://localhost:8000. Start it with: python backendmp.py'
         );
       } else {
-        setError(
-          err instanceof Error ? err.message : 'Error analyzing resume'
-        );
+        setError(err instanceof Error ? err.message : 'Error analyzing resume');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleProceed = () => {
-    navigate('/interview', {
+  const handleGenerateInterview = () => {
+    navigate(videoInterview ? '/video-interview' : '/interview', {
       state: {
         company: formData.company,
         role: formData.role,
@@ -186,122 +89,148 @@ for (let i = 0; i < COUNT; i++) {
     });
   };
 
+  const inputClass =
+    'mt-2 w-full bg-surface-overlay border border-brand-border text-white px-4 py-3 rounded-xl focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/50 transition-colors';
+
   return (
-    <div className="min-h-screen bg-[#0b0f17] relative overflow-hidden">
+    <div className="relative flex-1 min-h-0">
+      <ElectricBackground className="z-0 opacity-50" />
+      <div className="absolute inset-0 bg-gradient-to-b from-surface-raised/70 to-surface pointer-events-none z-[1]" />
 
-      {/* 🔥 ELECTRIC BACKGROUND */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full opacity-60"
-        style={{ zIndex: 0 }}
-      ></canvas>
+      <PageContainer narrow className="relative z-10">
+        <div className="text-center mb-10">
+          <Badge className="mb-4">Step 1 — Resume</Badge>
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-white">
+            Resume <span className="text-brand">Analyzer</span>
+          </h1>
+          <p className="text-gray-400 text-lg mt-2">
+            Upload your resume and let AI evaluate your profile
+          </p>
+        </div>
 
-      {/* Slight Brightness Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0b1522]/60 to-black/80 z-0"></div>
-
-      {/* MAIN CONTENT */}
-      <div className="relative z-10 container mx-auto px-6 py-16 max-w-4xl">
-        <h1 className="text-6xl font-extrabold text-white drop-shadow-[0_0_25px_#00ffd5] text-center">
-          Resume Analyzer
-        </h1>
-        <p className="text-teal-300 text-xl mt-2 text-center font-semibold">
-          Upload your resume and let AI evaluate your profile
-        </p>
-
-        {/* CARD */}
-        <div className="mt-14 bg-black/40 border border-teal-400/20 shadow-[0_0_40px_#00ffd52f] rounded-3xl p-10 backdrop-blur-lg">
-
-          {/* Company */}
-          <label className="text-white font-medium">Company Name</label>
+        <Card variant="elevated" padding="lg">
+          <label className="text-white font-medium text-sm">Company Name</label>
           <input
             type="text"
-            className="mt-2 w-full bg-black/50 border border-teal-300/30 text-white px-4 py-3 rounded-lg"
+            className={inputClass}
             placeholder="Enter company name"
             value={formData.company}
             onChange={(e) => setFormData({ ...formData, company: e.target.value })}
           />
 
-          {/* Role */}
-          <label className="text-white font-medium mt-6 block">Job Role</label>
+          <label className="text-white font-medium text-sm mt-6 block">Job Role</label>
           <input
             type="text"
-            className="mt-2 w-full bg-black/50 border border-teal-300/30 text-white px-4 py-3 rounded-lg"
+            className={inputClass}
             placeholder="Enter job role"
             value={formData.role}
             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
           />
 
-          {/* Slider */}
-          <label className="text-white font-medium mt-6 block">
-            Number of Questions: {formData.numQuestions}
+          <label className="text-white font-medium text-sm mt-6 block">
+            Number of Questions: <span className="text-brand">{formData.numQuestions}</span>
           </label>
           <input
             type="range"
-            min="1"
-            max="15"
+            min={1}
+            max={15}
             value={formData.numQuestions}
             onChange={(e) =>
-              setFormData({ ...formData, numQuestions: parseInt(e.target.value) })
+              setFormData({ ...formData, numQuestions: parseInt(e.target.value, 10) })
             }
-            className="w-full mt-2 accent-teal-300"
+            className="w-full mt-2 accent-brand"
           />
 
-          {/* Upload */}
-          <label className="text-white font-medium mt-8 block">Resume Upload</label>
+          <label className="text-white font-medium text-sm mt-8 block">Resume Upload</label>
           <div className="mt-3">
-            <input type="file" id="upload" className="hidden" onChange={handleFileChange} />
+            <input type="file" id="upload" className="hidden" accept=".pdf,.txt" onChange={handleFileChange} />
             <label
               htmlFor="upload"
-              className="flex flex-col items-center justify-center border-dashed border-2 border-teal-300/40 bg-black/40 p-10 rounded-xl cursor-pointer hover:border-teal-300 transition"
+              className="flex flex-col items-center justify-center border-dashed border-2 border-brand-border bg-surface-overlay p-10 rounded-xl cursor-pointer hover:border-brand hover:bg-brand-muted/30 transition-colors"
             >
               {resumeFile ? (
                 <>
-                  <FileText className="text-teal-300 w-10 h-10" />
-                  <p className="text-white mt-2">{resumeFile.name}</p>
+                  <FileText className="text-brand w-10 h-10" />
+                  <p className="text-white mt-2 text-sm">{resumeFile.name}</p>
                 </>
               ) : (
                 <>
-                  <Upload className="text-teal-300 w-10 h-10" />
-                  <p className="text-white mt-2">Click to upload resume (PDF/TXT)</p>
+                  <Upload className="text-brand w-10 h-10" />
+                  <p className="text-white mt-2 text-sm">Click to upload resume (PDF/TXT)</p>
                 </>
               )}
             </label>
           </div>
 
-          {/* Error */}
-          {error && <p className="mt-4 text-red-400">{error}</p>}
+          {error && (
+            <p className="mt-4 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+              {error}
+            </p>
+          )}
 
-          {/* Analyze Button */}
-          <button
+          <Button
+            fullWidth
+            size="lg"
+            className="mt-8"
+            loading={loading}
             onClick={handleAnalyzeResume}
-            className="mt-8 w-full py-4 bg-teal-300 text-black font-bold rounded-xl hover:bg-teal-200 transition flex items-center justify-center gap-2"
           >
-            {loading ? <Loader2 className="animate-spin" /> : "Analyze Resume"}
-          </button>
+            Analyze Resume
+          </Button>
 
-          {/* Results */}
           {resumeResults && (
-            <div className="mt-10 space-y-6">
-              <div className="bg-black/50 p-6 rounded-xl border border-teal-300/30">
-                <h3 className="text-teal-300 text-xl font-semibold">Resume Summary</h3>
-                <p className="text-white mt-2">{resumeResults.resume_summary}</p>
-              </div>
+            <div className="mt-10 space-y-6 animate-fade-in">
+              <Card variant="ghost" padding="md">
+                <h3 className="text-brand text-lg font-semibold">Resume Summary</h3>
+                <p className="text-gray-200 mt-2 text-sm leading-relaxed">{resumeResults.resume_summary}</p>
+              </Card>
 
-              <div className="bg-black/50 p-6 rounded-xl border border-teal-300/30">
-                <h3 className="text-teal-300 text-xl font-semibold">Evaluation</h3>
-                <p className="text-white mt-2 whitespace-pre-line">{resumeResults.evaluation}</p>
-              </div>
+              <Card variant="ghost" padding="md">
+                <h3 className="text-brand text-lg font-semibold">Evaluation</h3>
+                <p className="text-gray-200 mt-2 text-sm leading-relaxed whitespace-pre-line">
+                  {resumeResults.evaluation}
+                </p>
+              </Card>
 
-              <button
-                onClick={handleProceed}
-                className="w-full py-4 bg-gradient-to-r from-teal-300 to-cyan-400 text-black font-bold rounded-xl"
-              >
-                Proceed to Interview
-              </button>
+              <Card variant="ghost" padding="md">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <Video className="w-6 h-6 text-brand mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-white font-semibold">Video Interview</p>
+                      <p className="text-gray-400 text-sm mt-1">
+                        Camera on with body language and presence scoring.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={videoInterview}
+                    aria-label="Enable video interview"
+                    onClick={() => setVideoInterview((on) => !on)}
+                    className={cn(
+                      'relative w-14 h-8 rounded-full transition-colors shrink-0',
+                      videoInterview ? 'bg-brand' : 'bg-gray-600'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow transition-transform',
+                        videoInterview ? 'translate-x-6' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </div>
+              </Card>
+
+              <Button fullWidth size="lg" onClick={handleGenerateInterview}>
+                Generate Interview Questions
+              </Button>
             </div>
           )}
-        </div>
-      </div>
+        </Card>
+      </PageContainer>
     </div>
   );
 };

@@ -1,10 +1,13 @@
-// InterviewScreen.tsx
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Loader2, Volume2, Send } from 'lucide-react';
-// Ensure API_ENDPOINTS.speechToText === "http://localhost:8000/speech_to_text"
+import { Loader2, Volume2 } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
-import type { QuestionGenerationResponse, QAPair, SpeechToTextResponse } from '../types';
+import type { QuestionGenerationResponse, QAPair } from '../types';
+import HybridAnswerInput from '../components/HybridAnswerInput';
+import { useHybridAnswer } from '../hooks/useHybridAnswer';
+import PageContainer from '../components/layout/PageContainer';
+import InterviewQuestionProgress from '../components/layout/InterviewQuestionProgress';
+import { Button, Card, Badge } from '../components/ui';
 
 interface LocationState {
   company: string;
@@ -20,18 +23,13 @@ const InterviewScreen = () => {
 
   const [questions, setQuestions] = useState<string[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [currentAnswer, setCurrentAnswer] = useState('');
   const [qaList, setQaList] = useState<QAPair[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const answer = useHybridAnswer({ releaseStreamOnStop: true });
 
   useEffect(() => {
     if (!state) {
@@ -40,12 +38,15 @@ const InterviewScreen = () => {
     }
     generateQuestions();
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      answer.releaseStream();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    answer.resetAnswer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestionIndex]);
 
   const generateQuestions = async () => {
     try {
@@ -60,18 +61,14 @@ const InterviewScreen = () => {
         }),
       });
 
-      const data: QuestionGenerationResponse | null = await response
-        .json()
-        .catch(() => null);
+      const data: QuestionGenerationResponse | null = await response.json().catch(() => null);
 
       if (!response.ok) {
         const detail =
           (data as { detail?: string; message?: string } | null)?.detail ||
           (data as { message?: string } | null)?.message ||
           `Server error (${response.status})`;
-        throw new Error(
-          typeof detail === 'string' ? detail : 'Failed to generate questions'
-        );
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to generate questions');
       }
 
       if (!data?.questions?.length) {
@@ -85,9 +82,7 @@ const InterviewScreen = () => {
           'Cannot reach the backend at http://localhost:8000. Start it with: python backendmp.py'
         );
       } else {
-        setError(
-          err instanceof Error ? err.message : 'Failed to generate questions'
-        );
+        setError(err instanceof Error ? err.message : 'Failed to generate questions');
       }
     } finally {
       setLoading(false);
@@ -108,133 +103,44 @@ const InterviewScreen = () => {
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
+      if (audioRef.current) audioRef.current.pause();
 
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
-
       audio.onended = () => {
         setIsPlayingAudio(false);
         URL.revokeObjectURL(audioUrl);
       };
-
       await audio.play();
-    } catch (err) {
-      console.error('Audio playback error:', err);
+    } catch {
       setIsPlayingAudio(false);
       setError('Audio playback failed');
     }
   };
 
-  const startRecording = async () => {
-    try {
-      setError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      let mimeType = '';
-      if ((MediaRecorder as any).isTypeSupported && (MediaRecorder as any).isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if ((MediaRecorder as any).isTypeSupported && (MediaRecorder as any).isTypeSupported('audio/webm')) {
-        mimeType = 'audio/webm';
-      }
-
-      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await transcribeAudio(audioBlob, 'recording.webm');
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop());
-          streamRef.current = null;
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error(err);
-      setError('Microphone access failed. Check permissions.');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {
-        console.warn('Stop recording error', e);
-      } finally {
-        setIsRecording(false);
-      }
-    }
-  };
-
-  const transcribeAudio = async (audioBlob: Blob, filename = 'recording.webm') => {
-    try {
-      setIsProcessingAnswer(true);
-      setError('');
-
-      const formData = new FormData();
-      formData.append('audio_file', audioBlob, filename);
-
-      const res = await fetch(API_ENDPOINTS.speechToText, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const text = await res.text();
-
-      if (!res.ok) {
-        try {
-          const parsed = JSON.parse(text);
-          throw new Error(parsed.message || parsed.detail || JSON.stringify(parsed));
-        } catch {
-          throw new Error(text || `HTTP ${res.status}`);
-        }
-      }
-
-      const data: SpeechToTextResponse = JSON.parse(text);
-      if (data.success) {
-        setCurrentAnswer(data.transcription);
-      } else {
-        setError(data.message || 'Could not understand audio');
-      }
-    } catch (err) {
-      console.error('Transcription error:', err);
-      setError(err instanceof Error ? err.message : 'Transcription failed');
-    } finally {
-      setIsProcessingAnswer(false);
-    }
-  };
-
   const handleSubmitAnswer = () => {
-    if (!currentAnswer.trim()) {
+    if (answer.isMicActive) {
+      answer.stopRecording();
+    }
+
+    const text = answer.getSubmitAnswer();
+    if (!text) {
       setError('Answer cannot be empty');
       return;
     }
 
     const newQA: QAPair = {
       question: questions[currentQuestionIndex],
-      answer: currentAnswer,
+      answer: text,
     };
 
     const updatedQAList = [...qaList, newQA];
     setQaList(updatedQAList);
-    setCurrentAnswer('');
+    answer.resetAnswer();
     setError('');
 
     if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
+      setCurrentQuestionIndex((i) => i + 1);
     } else {
       navigate('/results', {
         state: {
@@ -246,103 +152,79 @@ const InterviewScreen = () => {
     }
   };
 
+  const displayError = error || answer.error;
+  const canSubmit = Boolean(answer.finalAnswer.trim());
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center py-24">
         <div className="text-center">
-          <Loader2 className="w-16 h-16 text-[#05fcd3] animate-spin mx-auto mb-4" />
-          <p className="text-white text-xl">Generating interview questions...</p>
+          <Loader2 className="w-14 h-14 text-brand animate-spin mx-auto mb-4" />
+          <p className="text-white text-lg">Generating interview questions…</p>
+          <p className="text-gray-500 text-sm mt-2">Tailored to your resume and role</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      <div className="relative z-10 container mx-auto px-4 py-12">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <div className="inline-block px-6 py-2 bg-[#05fcd3]/20 border border-[#05fcd3]/50 rounded-full mb-4">
-              <p className="text-[#05fcd3]">Question {currentQuestionIndex + 1} of {questions.length}</p>
-            </div>
-            <h1 className="text-4xl font-bold text-white mb-2">AI Interview</h1>
-            <p className="text-gray-400">Role: {state.role}</p>
-          </div>
-
-          <div className="relative bg-gray-900/50 border border-[#05fcd3]/20 rounded-2xl p-8 shadow-2xl mb-6">
-            <div className="flex items-start gap-4 mb-6">
-              <h2 className="text-2xl text-white flex-1">{questions[currentQuestionIndex]}</h2>
-              <button
-                onClick={() => playQuestionAudio(questions[currentQuestionIndex])}
-                disabled={isPlayingAudio}
-                className="p-3 bg-[#05fcd3]/20 border border-[#05fcd3]/50 rounded-lg hover:bg-[#05fcd3]/30 disabled:opacity-50"
-              >
-                <Volume2 className={`w-6 h-6 text-[#05fcd3] ${isPlayingAudio ? 'animate-pulse' : ''}`} />
-              </button>
-            </div>
-
-            <textarea
-              value={currentAnswer}
-              onChange={(e) => setCurrentAnswer(e.target.value)}
-              className="w-full px-4 py-3 bg-black/50 border border-[#05fcd3]/30 rounded-lg text-white focus:border-[#05fcd3]"
-              rows={6}
-              placeholder="Type your answer or use the microphone..."
-            />
-
-            <div className="flex items-center gap-4 mt-4">
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={isProcessingAnswer}
-                className={`flex-1 py-4 rounded-lg flex items-center justify-center gap-2 ${
-                  isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-[#05fcd3]/20 border border-[#05fcd3]/50 text-[#05fcd3]'
-                } disabled:opacity-50`}
-              >
-                {isProcessingAnswer ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" /> Processing...
-                  </>
-                ) : isRecording ? (
-                  <>
-                    <MicOff className="w-5 h-5" /> Stop Recording
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-5 h-5" /> Record Answer
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={handleSubmitAnswer}
-                disabled={!currentAnswer.trim() || isRecording || isProcessingAnswer}
-                className="flex-1 py-4 bg-[#05fcd3] text-black rounded-lg font-semibold hover:bg-[#04dab8] disabled:opacity-50"
-              >
-                {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Interview'}
-              </button>
-            </div>
-
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4 mt-4">
-                <p className="text-red-400">{error}</p>
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmitAnswer}
-              disabled={!currentAnswer.trim() || isRecording || isProcessingAnswer}
-              aria-label="Submit answer"
-              className="absolute bottom-4 right-4 p-3 rounded-full bg-[#05fcd3] text-black shadow-lg disabled:opacity-50 flex items-center justify-center"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="bg-gray-900/30 border border-[#05fcd3]/10 rounded-lg p-4 text-center text-gray-400">
-            Questions answered: {qaList.length} / {questions.length}
-          </div>
-        </div>
+    <PageContainer narrow>
+      <div className="text-center mb-6">
+        <Badge className="mb-3">Step 3 — Interview</Badge>
+        <h1 className="text-3xl sm:text-4xl font-bold text-white mb-1">AI Interview</h1>
+        <p className="text-gray-400">Role: {state.role}</p>
       </div>
-    </div>
+
+      <InterviewQuestionProgress
+        current={currentQuestionIndex + 1}
+        total={questions.length}
+        className="mb-6"
+      />
+
+      <Card variant="elevated" padding="lg" className="mb-6">
+        <div className="flex items-start gap-4 mb-6">
+          <h2 className="text-xl sm:text-2xl text-white flex-1 leading-relaxed">
+            {questions[currentQuestionIndex]}
+          </h2>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => playQuestionAudio(questions[currentQuestionIndex])}
+            disabled={isPlayingAudio}
+            aria-label="Play question audio"
+            className="shrink-0 px-3"
+          >
+            <Volume2 className={`w-5 h-5 ${isPlayingAudio ? 'animate-pulse' : ''}`} />
+          </Button>
+        </div>
+
+        <HybridAnswerInput
+          value={answer.finalAnswer}
+          onChange={answer.handleTextChange}
+          onSelectCapture={answer.captureSelection}
+          textareaRef={answer.textareaRef}
+          recordingPhase={answer.recordingPhase}
+          onStartRecording={answer.startRecording}
+          onStopRecording={answer.stopRecording}
+          onPauseRecording={answer.pauseRecording}
+          onResumeRecording={answer.resumeRecording}
+        />
+
+        <Button fullWidth size="lg" className="mt-6" disabled={!canSubmit} onClick={handleSubmitAnswer}>
+          {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Interview'}
+        </Button>
+
+        {displayError && (
+          <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4 mt-4">
+            <p className="text-red-400 text-sm">{displayError}</p>
+          </div>
+        )}
+      </Card>
+
+      <Card variant="ghost" padding="sm" className="text-center text-gray-400 text-sm">
+        Questions answered: {qaList.length} / {questions.length}
+      </Card>
+    </PageContainer>
   );
 };
 

@@ -62,6 +62,16 @@ export const generatePDF = (
               ${evaluation.role_fit_score?.toFixed(1) || 'N/A'} / 10
             </td>
           </tr>
+          ${
+            evaluation.presence_score != null
+              ? `<tr style="background: #f9f9f9;">
+            <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Presence & Body Language</td>
+            <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-size: 18px; font-weight: bold; color: #05fcd3;">
+              ${evaluation.presence_score?.toFixed(1) || 'N/A'} / 10
+            </td>
+          </tr>`
+              : ''
+          }
           <tr style="background: #05fcd3;">
             <td style="padding: 12px; border: 1px solid #ddd; font-weight: bold; font-size: 18px;">FINAL SCORE</td>
             <td style="padding: 12px; border: 1px solid #ddd; text-align: center; font-size: 24px; font-weight: bold;">
@@ -76,9 +86,22 @@ export const generatePDF = (
       evaluation.feedback
         ? `
     <div style="margin-bottom: 30px;">
-      <h2 style="color: #05fcd3; margin-bottom: 15px; font-size: 24px;">Feedback</h2>
+      <h2 style="color: #05fcd3; margin-bottom: 15px; font-size: 24px;">Verbal Feedback</h2>
       <div style="padding: 15px; border: 2px solid #05fcd3; border-radius: 8px; background: #f0fffe; line-height: 1.6;">
         ${evaluation.feedback.replace(/\n/g, '<br>')}
+      </div>
+    </div>
+    `
+        : ''
+    }
+
+    ${
+      evaluation.nonverbal_feedback
+        ? `
+    <div style="margin-bottom: 30px;">
+      <h2 style="color: #7c3aed; margin-bottom: 15px; font-size: 24px;">Body Language & Interviewer Perspective</h2>
+      <div style="padding: 15px; border: 2px solid #a78bfa; border-radius: 8px; background: #faf5ff; line-height: 1.6;">
+        ${evaluation.nonverbal_feedback.replace(/\n/g, '<br>')}
       </div>
     </div>
     `

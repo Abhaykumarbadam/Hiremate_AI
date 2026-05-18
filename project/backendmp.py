@@ -484,13 +484,14 @@ import tempfile
 import shutil
 import io
 import re
+import glob
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 import pyttsx3
 import speech_recognition as sr
@@ -503,26 +504,124 @@ try:
 except Exception:
     genai = None
 
+def _prepend_path(directory: str) -> None:
+    if directory and os.path.isdir(directory):
+        current = os.environ.get("PATH", "")
+        if directory not in current.split(os.pathsep):
+            os.environ["PATH"] = directory + os.pathsep + current
+
+
+def _find_ffmpeg_candidates() -> List[str]:
+    candidates: List[str] = []
+
+    for env_key in ("FFMPEG_PATH", "FFMPEG_BIN"):
+        value = os.getenv(env_key)
+        if value:
+            candidates.append(value)
+
+    legacy = r"C:\ffmpeg\ffmpegfile\bin\ffmpeg.exe"
+    if os.path.isfile(legacy):
+        candidates.append(legacy)
+
+    winget_pattern = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""),
+        "Microsoft",
+        "WinGet",
+        "Packages",
+        "Gyan.FFmpeg*",
+        "ffmpeg-*-full_build",
+        "bin",
+        "ffmpeg.exe",
+    )
+    candidates.extend(glob.glob(winget_pattern))
+
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        candidates.append(on_path)
+
+    return candidates
+
+
+def _find_ffprobe_candidates(ffmpeg_exe: Optional[str]) -> List[str]:
+    candidates: List[str] = []
+
+    for env_key in ("FFPROBE_PATH",):
+        value = os.getenv(env_key)
+        if value:
+            candidates.append(value)
+
+    if ffmpeg_exe:
+        sibling = os.path.join(os.path.dirname(ffmpeg_exe), "ffprobe.exe")
+        candidates.append(sibling)
+
+    legacy = r"C:\ffmpeg\ffmpegfile\bin\ffprobe.exe"
+    if os.path.isfile(legacy):
+        candidates.append(legacy)
+
+    on_path = shutil.which("ffprobe")
+    if on_path:
+        candidates.append(on_path)
+
+    return candidates
+
+
+def resolve_ffmpeg_paths() -> Tuple[Optional[str], Optional[str]]:
+    ffmpeg_exe: Optional[str] = None
+    for candidate in _find_ffmpeg_candidates():
+        if candidate and os.path.isfile(candidate):
+            ffmpeg_exe = os.path.abspath(candidate)
+            break
+
+    ffprobe_exe: Optional[str] = None
+    for candidate in _find_ffprobe_candidates(ffmpeg_exe):
+        if candidate and os.path.isfile(candidate):
+            ffprobe_exe = os.path.abspath(candidate)
+            break
+
+    return ffmpeg_exe, ffprobe_exe
+
+
+def _load_dotenv_early() -> None:
+    project_dir = Path(__file__).resolve().parent
+    for env_path in (project_dir / ".env", project_dir.parent / ".env"):
+        if not env_path.exists():
+            continue
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                if stripped.startswith("export "):
+                    stripped = stripped[len("export ") :].strip()
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+        except Exception:
+            pass
+
+
+def bootstrap_ffmpeg_for_pydub() -> Tuple[Optional[str], Optional[str]]:
+    ffmpeg_exe, ffprobe_exe = resolve_ffmpeg_paths()
+    if ffmpeg_exe:
+        _prepend_path(os.path.dirname(ffmpeg_exe))
+    return ffmpeg_exe, ffprobe_exe
+
+
+_load_dotenv_early()
+FFMPEG_EXE, FFPROBE_EXE = bootstrap_ffmpeg_for_pydub()
+
 from pdfminer.high_level import extract_text
 from pydub import AudioSegment
-from pydub.utils import which
 
-# ----------------------------------------------------------
-# FFMPEG
-# ----------------------------------------------------------
-FFMPEG_EXE = r"C:\ffmpeg\ffmpegfile\bin\ffmpeg.exe"
-FFPROBE_EXE = r"C:\ffmpeg\ffmpegfile\bin\ffprobe.exe"
-
-if os.path.exists(FFMPEG_EXE):
+if FFMPEG_EXE:
     AudioSegment.converter = FFMPEG_EXE
+    print(f"FFmpeg configured: {FFMPEG_EXE}")
 else:
-    fallback = which("ffmpeg")
-    if fallback:
-        AudioSegment.converter = fallback
-    else:
-        print("WARNING: FFMPEG NOT FOUND")
+    print("WARNING: FFMPEG NOT FOUND — speech_to_text may fail for WebM/OGG uploads")
 
-if os.path.exists(FFPROBE_EXE):
+if FFPROBE_EXE:
     AudioSegment.ffprobe = FFPROBE_EXE
 
 # ----------------------------------------------------------
@@ -557,26 +656,46 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
     return values
 
 
-def load_api_key() -> Optional[str]:
+def _append_unique_key(keys: List[str], seen: set, value: Optional[str]) -> None:
+    if value and value not in seen:
+        seen.add(value)
+        keys.append(value)
+
+
+def load_gemini_api_keys() -> List[str]:
+    keys: List[str] = []
+    seen: set = set()
     project_dir = Path(__file__).resolve().parent
+
     for env_path in (project_dir / ".env", project_dir.parent / ".env"):
         values = load_env_file(env_path)
-        api_key = values.get("GEMINI_API_KEY") or values.get("GOOGLE_API_KEY")
-        if api_key:
-            return api_key
-    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        _append_unique_key(
+            keys, seen,
+            values.get("GEMINI_API_KEY") or values.get("GOOGLE_API_KEY"),
+        )
+        _append_unique_key(
+            keys, seen,
+            values.get("GEMINI_API_KEY_FALLBACK") or values.get("GOOGLE_API_KEY_FALLBACK"),
+        )
+
+    _append_unique_key(keys, seen, os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    _append_unique_key(
+        keys, seen,
+        os.getenv("GEMINI_API_KEY_FALLBACK") or os.getenv("GOOGLE_API_KEY_FALLBACK"),
+    )
+    return keys
 
 
-GEMINI_API_KEY = load_api_key()
+GEMINI_API_KEYS = load_gemini_api_keys()
+_active_key_index = 0
 
-if genai is not None and GEMINI_API_KEY:
+if genai is not None and GEMINI_API_KEYS:
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-
+        genai.configure(api_key=GEMINI_API_KEYS[0])
         model = genai.GenerativeModel("models/gemini-2.5-flash")
-
         print("Gemini initialized successfully")
-
+        if len(GEMINI_API_KEYS) > 1:
+            print(f"Gemini fallback key configured ({len(GEMINI_API_KEYS)} keys)")
     except Exception as e:
         print("Gemini initialization failed")
         print("ERROR:", str(e))
@@ -645,16 +764,56 @@ def get_gemini_text(response) -> str:
             return ""
 
 
+def _is_quota_or_limit_error(exc: Exception) -> bool:
+    name = type(exc).__name__.lower()
+    if "resourceexhausted" in name or "toomanyrequests" in name:
+        return True
+    msg = str(exc).lower()
+    markers = (
+        "quota", "rate limit", "rate_limit", "429", "billing",
+        "exceeded", "credit", "resource has been exhausted", "limit",
+    )
+    return any(marker in msg for marker in markers)
+
+
+def _model_for_key_index(key_index: int):
+    genai.configure(api_key=GEMINI_API_KEYS[key_index])
+    return genai.GenerativeModel("models/gemini-2.5-flash")
+
+
 def call_gemini(prompt: str) -> Optional[str]:
-    if model is None:
+    global model, _active_key_index
+
+    if genai is None or not GEMINI_API_KEYS:
         return None
-    try:
-        response = model.generate_content(prompt)
-        text = get_gemini_text(response)
-        return text or None
-    except Exception as e:
-        print("Gemini call failed:", e)
-        return None
+
+    for attempt in range(len(GEMINI_API_KEYS)):
+        key_index = (_active_key_index + attempt) % len(GEMINI_API_KEYS)
+        try:
+            if attempt > 0:
+                model = _model_for_key_index(key_index)
+            elif model is None:
+                model = _model_for_key_index(key_index)
+
+            response = model.generate_content(prompt)
+            text = get_gemini_text(response)
+            if text:
+                if key_index != _active_key_index:
+                    _active_key_index = key_index
+                    print(f"Switched to Gemini API key #{key_index + 1}")
+                return text
+        except Exception as e:
+            if _is_quota_or_limit_error(e) and attempt < len(GEMINI_API_KEYS) - 1:
+                print(
+                    f"Gemini key #{key_index + 1} hit quota/credit limit, "
+                    "trying fallback key..."
+                )
+                model = None
+                continue
+            print("Gemini call failed:", e)
+            return None
+
+    return None
 
 
 def extract_resume_text_from_file(file_path: str) -> Optional[str]:
@@ -682,41 +841,71 @@ def extract_resume_text_from_file(file_path: str) -> Optional[str]:
     return None
 
 
+def _clean_evaluation_text(value: str) -> str:
+    cleaned = (value or "").strip()
+    cleaned = re.sub(r"\*\*", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def parse_scores_from_text(text: str):
 
     out = {
         "technical": None,
         "communication": None,
         "role_fit": None,
+        "presence": None,
         "final": None,
-        "feedback": None
+        "feedback": None,
+        "nonverbal_feedback": None,
     }
 
+    if not text:
+        return out
+
     try:
-        m = re.search(r"Technical.*?(\d+(?:\.\d+)?)", text, re.I)
+        m = re.search(r"Technical\s+Score[:\-]?\s*(\d+(?:\.\d+)?)", text, re.I)
         if m:
             out["technical"] = float(m.group(1))
 
-        m = re.search(r"Communication.*?(\d+(?:\.\d+)?)", text, re.I)
+        m = re.search(r"Communication\s+Score[:\-]?\s*(\d+(?:\.\d+)?)", text, re.I)
         if m:
             out["communication"] = float(m.group(1))
 
-        m = re.search(r"(Role[- ]?fit).*?(\d+(?:\.\d+)?)", text, re.I)
+        m = re.search(r"Role[- ]?fit\s+Score[:\-]?\s*(\d+(?:\.\d+)?)", text, re.I)
         if m:
-            out["role_fit"] = float(m.group(2))
+            out["role_fit"] = float(m.group(1))
 
-        m = re.search(r"(Final|Overall).*?(\d+(?:\.\d+)?)", text, re.I)
+        m = re.search(r"Presence\s+Score[:\-]?\s*(\d+(?:\.\d+)?)", text, re.I)
         if m:
-            out["final"] = float(m.group(2))
+            out["presence"] = float(m.group(1))
 
-        m = re.search(
-            r"(Feedback|Recommendation)[:\-]?\s*(.+)",
+        m = re.search(r"(?:Final|Overall)\s+Score[:\-]?\s*(\d+(?:\.\d+)?)", text, re.I)
+        if m:
+            out["final"] = float(m.group(1))
+
+        nv = re.search(
+            r"(?:Nonverbal\s+Feedback|Body\s+Language(?:\s+Feedback)?)"
+            r"[:\-]?\s*(.+)$",
             text,
-            re.I | re.S
+            re.I | re.S,
         )
+        if nv:
+            out["nonverbal_feedback"] = _clean_evaluation_text(nv.group(1))
+            verbal_source = text[: nv.start()]
+        else:
+            verbal_source = text
 
-        if m:
-            out["feedback"] = m.group(2).strip()
+        vf = re.search(
+            r"(?<!Nonverbal\s)(?<!Body\s)Feedback[:\-]?\s*(.+?)"
+            r"(?=\n\s*(?:Nonverbal\s+Feedback|Body\s+Language|Technical\s+Score|"
+            r"Communication\s+Score|Role[- ]?fit\s+Score|Presence\s+Score|"
+            r"Final\s+Score|Overall\s+Score)|\Z)",
+            verbal_source,
+            re.I | re.S,
+        )
+        if vf:
+            out["feedback"] = _clean_evaluation_text(vf.group(1))
 
     except Exception as e:
         print("Score parsing error:", e)
@@ -834,15 +1023,48 @@ class QuestionGenerationResponse(BaseModel):
     message: str
 
 
+class NonverbalMetrics(BaseModel):
+    duration_sec: int = 0
+    smile_pct: int = 0
+    nod_count: int = 0
+    gaze_away_pct: int = 0
+    lean_forward_pct: int = 0
+    lean_back_pct: int = 0
+    engagement_score: int = 50
+
+    @field_validator(
+        "duration_sec",
+        "smile_pct",
+        "nod_count",
+        "gaze_away_pct",
+        "lean_forward_pct",
+        "lean_back_pct",
+        "engagement_score",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_int(cls, value):
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            return int(value)
+        try:
+            return int(round(float(value)))
+        except (TypeError, ValueError):
+            return 0
+
+
 class QAPair(BaseModel):
     question: str
     answer: str
+    nonverbal: Optional[NonverbalMetrics] = None
 
 
 class InterviewEvaluationRequest(BaseModel):
     qa_list: List[QAPair]
     role: str
-    resume_summary: str
+    resume_summary: str = ""
+    is_video_interview: bool = False
 
 
 class InterviewEvaluationResponse(BaseModel):
@@ -850,8 +1072,10 @@ class InterviewEvaluationResponse(BaseModel):
     technical_score: Optional[float]
     communication_score: Optional[float]
     role_fit_score: Optional[float]
+    presence_score: Optional[float]
     final_score: Optional[float]
     feedback: Optional[str]
+    nonverbal_feedback: Optional[str]
     raw_evaluation: Optional[str]
     message: str
 
@@ -865,6 +1089,73 @@ class SpeechToTextResponse(BaseModel):
     success: bool
     transcription: str
     message: str
+
+
+def build_nonverbal_summary(qa_list: List[QAPair]) -> str:
+    lines = []
+    for i, qa in enumerate(qa_list):
+        nv = qa.nonverbal
+        if not nv:
+            continue
+        lines.append(
+            f"Q{i + 1}: smile {nv.smile_pct}%, nods {nv.nod_count}, "
+            f"gaze away {nv.gaze_away_pct}%, lean forward {nv.lean_forward_pct}%, "
+            f"lean back {nv.lean_back_pct}%, engagement {nv.engagement_score}/100, "
+            f"duration {nv.duration_sec}s"
+        )
+    return "\n".join(lines)
+
+
+def offline_nonverbal_feedback(qa_list: List[QAPair], role: str) -> tuple:
+    metrics = [qa.nonverbal for qa in qa_list if qa.nonverbal]
+    if not metrics:
+        return None, None
+
+    avg_engagement = sum(m.engagement_score for m in metrics) / len(metrics)
+    avg_gaze_away = sum(m.gaze_away_pct for m in metrics) / len(metrics)
+    avg_smile = sum(m.smile_pct for m in metrics) / len(metrics)
+    total_nods = sum(m.nod_count for m in metrics)
+    avg_lean_back = sum(m.lean_back_pct for m in metrics) / len(metrics)
+    avg_lean_forward = sum(m.lean_forward_pct for m in metrics) / len(metrics)
+
+    presence = max(1.0, min(10.0, round(avg_engagement / 10, 1)))
+
+    feedback_parts = [
+        f"From an interviewer's perspective for the {role} role, your on-camera presence scored {presence}/10.",
+    ]
+    if avg_smile >= 15:
+        feedback_parts.append(
+            "Frequent smiles came across as approachable and helped build rapport."
+        )
+    elif avg_smile < 5:
+        feedback_parts.append(
+            "Limited facial warmth may have made answers feel more serious than intended; a natural smile when greeting or agreeing can help."
+        )
+
+    if avg_gaze_away >= 25:
+        feedback_parts.append(
+            f"You looked away from the camera about {avg_gaze_away:.0f}% of the time, which can read as distraction or low confidence to interviewers."
+        )
+    else:
+        feedback_parts.append(
+            "Eye contact with the camera was generally steady, which supports trust and attentiveness."
+        )
+
+    if total_nods >= 2:
+        feedback_parts.append(
+            f"Nodding ({total_nods} detected) signaled active listening and agreement."
+        )
+
+    if avg_lean_forward >= 20:
+        feedback_parts.append(
+            "Leaning toward the camera suggested engagement and interest in the conversation."
+        )
+    if avg_lean_back >= 20:
+        feedback_parts.append(
+            "Leaning back or away from the camera at times may have reduced perceived energy; staying centered reads as more confident."
+        )
+
+    return presence, " ".join(feedback_parts)
 
 # ----------------------------------------------------------
 # ROOT
@@ -1194,6 +1485,21 @@ async def evaluate_interview(
         for q in req.qa_list
     ])
 
+    nonverbal_block = build_nonverbal_summary(req.qa_list)
+    has_nonverbal = bool(nonverbal_block.strip())
+    video_mode = req.is_video_interview or has_nonverbal
+
+    nonverbal_prompt = ""
+    if video_mode and nonverbal_block:
+        nonverbal_prompt = f"""
+        Video interview body-language metrics (per question):
+        {nonverbal_block}
+
+        Include a separate section explaining how these physical cues would affect an interviewer's impression
+        (confidence, engagement, trust, professionalism). Note smiles, nodding, eye contact, leaning forward/back,
+        and moving away from the camera.
+        """
+
     evaluation_text = call_gemini(
         f"""
         Evaluate this interview.
@@ -1206,18 +1512,32 @@ async def evaluate_interview(
 
         Interview Transcript:
         {qa_text}
+        {nonverbal_prompt}
 
-        Give:
+        Use EXACTLY this format (scores first, then two separate feedback blocks):
+
         Technical Score: X/10
         Communication Score: X/10
         Role-fit Score: X/10
+        {"Presence Score: X/10" if video_mode else ""}
         Final Score: X/10
 
-        Feedback in 4 sentences.
+        Feedback:
+        (4 sentences ONLY about verbal answer quality — do not mention body language here)
+
+        {"Nonverbal Feedback:" if video_mode else ""}
+        {"(4-6 sentences ONLY about body language, eye contact, smiles, posture, and how an interviewer would perceive the candidate — do not repeat verbal feedback)" if video_mode else ""}
         """
     )
 
     used_fallback = not evaluation_text
+    presence_score = None
+    nonverbal_feedback = None
+
+    if has_nonverbal:
+        presence_score, nonverbal_feedback = offline_nonverbal_feedback(
+            req.qa_list, req.role
+        )
 
     if used_fallback:
         answer_count = len(req.qa_list)
@@ -1229,7 +1549,12 @@ async def evaluate_interview(
         technical = min(10.0, 4.0 + avg_len / 15)
         communication = min(10.0, 4.0 + avg_len / 20)
         role_fit = round((technical + communication) / 2, 1)
-        final = round((technical + communication + role_fit) / 3, 1)
+        if presence_score is not None:
+            final = round(
+                (technical + communication + role_fit + presence_score) / 4, 1
+            )
+        else:
+            final = round((technical + communication + role_fit) / 3, 1)
         feedback = (
             f"Solid effort for the {req.role} role. "
             f"You answered {answer_count} question(s) with reasonable detail. "
@@ -1240,32 +1565,39 @@ async def evaluate_interview(
             "technical": technical,
             "communication": communication,
             "role_fit": role_fit,
+            "presence": presence_score,
             "final": final,
             "feedback": feedback,
+            "nonverbal_feedback": nonverbal_feedback,
         }
         raw_evaluation = feedback
+        if nonverbal_feedback:
+            raw_evaluation = f"{feedback}\n\nNonverbal Feedback:\n{nonverbal_feedback}"
     else:
         parsed = parse_scores_from_text(evaluation_text)
-        raw_evaluation = evaluation_text
+        if parsed.get("presence") is None and presence_score is not None:
+            parsed["presence"] = presence_score
+        if not parsed.get("nonverbal_feedback") and nonverbal_feedback:
+            parsed["nonverbal_feedback"] = _clean_evaluation_text(nonverbal_feedback)
+        if parsed.get("feedback"):
+            parsed["feedback"] = _clean_evaluation_text(parsed["feedback"])
+        if parsed.get("nonverbal_feedback"):
+            parsed["nonverbal_feedback"] = _clean_evaluation_text(
+                parsed["nonverbal_feedback"]
+            )
+        # Avoid showing the same text three times on the results page
+        raw_evaluation = None
+        if not parsed.get("feedback") and not parsed.get("nonverbal_feedback"):
+            raw_evaluation = _clean_evaluation_text(evaluation_text)
 
     final = parsed["final"]
 
-    if (
-        final is None and
-        all(parsed[x] for x in [
-            "technical",
-            "communication",
-            "role_fit"
-        ])
-    ):
-        final = round(
-            (
-                parsed["technical"] +
-                parsed["communication"] +
-                parsed["role_fit"]
-            ) / 3,
-            2
-        )
+    score_keys = ["technical", "communication", "role_fit"]
+    if parsed.get("presence") is not None:
+        score_keys.append("presence")
+
+    if final is None and all(parsed.get(x) for x in score_keys):
+        final = round(sum(parsed[x] for x in score_keys) / len(score_keys), 2)
 
     message = "Interview evaluation completed"
     if used_fallback:
@@ -1276,11 +1608,13 @@ async def evaluate_interview(
 
     return InterviewEvaluationResponse(
         success=True,
-        technical_score=parsed["technical"],
-        communication_score=parsed["communication"],
-        role_fit_score=parsed["role_fit"],
+        technical_score=parsed.get("technical"),
+        communication_score=parsed.get("communication"),
+        role_fit_score=parsed.get("role_fit"),
+        presence_score=parsed.get("presence"),
         final_score=final,
-        feedback=parsed["feedback"],
+        feedback=parsed.get("feedback"),
+        nonverbal_feedback=parsed.get("nonverbal_feedback"),
         raw_evaluation=raw_evaluation,
         message=message
     )

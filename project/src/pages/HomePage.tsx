@@ -1,45 +1,29 @@
-import { useNavigate } from "react-router-dom";
-import Lottie from "lottie-react";
-import animationData from "../assets/animations/originalhome.json";
+import { useNavigate } from 'react-router-dom';
+import ElectricBackground from '../components/ElectricBackground';
+import { Button } from '../components/ui';
 
 const HomePage = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#05060a] text-white flex items-center justify-center">
+    <div className="relative flex-1 min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)] overflow-hidden flex items-center justify-center">
+      <ElectricBackground className="z-0" />
 
-      {/* 🔥 FULLSCREEN BACKGROUND ANIMATION */}
-      <Lottie
-        animationData={animationData}
-        loop
-        autoplay
-        className="absolute inset-0 w-full h-full object-cover opacity-100 pointer-events-none"
-      />
+      <div className="absolute inset-0 z-[1] bg-gradient-to-b from-surface/20 via-transparent to-black/60 pointer-events-none" />
 
-      {/* 🔥 OVERLAY CONTENT */}
-      <div className="relative z-10 flex flex-col items-center text-center px-4">
-        {/* TITLE */}
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-4">
-          HireMate AI
+      <div className="relative z-10 flex flex-col items-center text-center px-4 max-w-2xl animate-fade-in">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-4 drop-shadow-lg font-display">
+          HireMate <span className="text-brand">AI</span>
         </h1>
 
-        {/* TAGLINE */}
-        <p className="text-lg md:text-2xl text-teal-300 mb-10 font-bold">
-           From Candidacy to Career
+        <p className="text-lg md:text-2xl text-brand mb-10 font-semibold">
+          From Candidacy to Career
         </p>
 
-
-        {/* START INTERVIEW BUTTON */}
-        <button
-          onClick={() => navigate("/resume-analyzer")}
-          className="px-10 py-4 bg-teal-400 hover:bg-teal-300 text-black font-semibold text-lg rounded-full shadow-xl transition-all duration-200"
-        >
-          Start Interview
-        </button>
+        <Button size="lg" className="rounded-full px-10" onClick={() => navigate('/resume-analyzer')}>
+          Get Started
+        </Button>
       </div>
-
-      {/* DARK GRADIENT OVERLAY FOR BETTER VISIBILITY */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-black/40 pointer-events-none"></div>
     </div>
   );
 };

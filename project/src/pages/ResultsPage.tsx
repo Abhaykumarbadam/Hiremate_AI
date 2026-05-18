@@ -1,14 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Download, Loader2, Award, MessageSquare, Target, TrendingUp } from 'lucide-react';
+import { Home, Download, Loader2, MessageSquare, Target, TrendingUp, Video } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 import type { QAPair, InterviewEvaluationResponse } from '../types';
 import { generatePDF } from '../utils/pdfGenerator';
+import { buildEvaluationPayload } from '../utils/evaluationPayload';
+import PageContainer from '../components/layout/PageContainer';
+import { Button, Card, Badge } from '../components/ui';
+import ResultsHeroReveal from '../components/results/ResultsHeroReveal';
+import ScoreRadarChart from '../components/results/ScoreRadarChart';
+import AnimatedScoreCard from '../components/results/AnimatedScoreCard';
+import FeedbackReveal from '../components/results/FeedbackReveal';
 
 interface LocationState {
   qaList: QAPair[];
   role: string;
   resumeSummary: string;
+  isVideoInterview?: boolean;
 }
 
 const ResultsPage = () => {
@@ -26,21 +34,33 @@ const ResultsPage = () => {
       return;
     }
     evaluateInterview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const evaluateInterview = async () => {
     try {
+      const payload = buildEvaluationPayload(
+        state.qaList,
+        state.role,
+        state.resumeSummary,
+        Boolean(state.isVideoInterview)
+      );
+
       const response = await fetch(API_ENDPOINTS.evaluateInterview, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          qa_list: state.qaList,
-          role: state.role,
-          resume_summary: state.resumeSummary,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error('Failed to evaluate interview');
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => null);
+        const detail =
+          errBody?.detail &&
+          (Array.isArray(errBody.detail)
+            ? errBody.detail.map((d: { msg?: string }) => d.msg).join('; ')
+            : String(errBody.detail));
+        throw new Error(detail || 'Failed to evaluate interview');
+      }
 
       const data: InterviewEvaluationResponse = await response.json();
       setEvaluation(data);
@@ -56,12 +76,23 @@ const ResultsPage = () => {
     generatePDF(evaluation, state.qaList, state.role);
   };
 
+  const getScoreColor = (score?: number) => {
+    if (!score) return 'text-gray-400';
+    if (score >= 8) return 'text-green-400';
+    if (score >= 6) return 'text-brand';
+    if (score >= 4) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-16 h-16 text-[#05fcd3] animate-spin mx-auto mb-4" />
-          <p className="text-white text-xl">Evaluating your interview performance...</p>
+      <div className="flex-1 flex items-center justify-center py-24">
+        <div className="text-center max-w-md px-4">
+          <Loader2 className="w-14 h-14 text-brand animate-spin mx-auto mb-4" />
+          <p className="text-white text-lg font-medium">Evaluating your interview…</p>
+          <p className="text-gray-500 text-sm mt-2">
+            Reviewing answers · Scoring technical depth · Building feedback
+          </p>
         </div>
       </div>
     );
@@ -69,171 +100,125 @@ const ResultsPage = () => {
 
   if (error || !evaluation) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center py-24">
         <div className="text-center">
-          <p className="text-red-400 text-xl mb-6">{error || 'No evaluation data available'}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="px-6 py-3 bg-[#05fcd3] text-black rounded-lg hover:bg-[#04dab8] transition-colors"
-          >
-            Return Home
-          </button>
+          <p className="text-red-400 text-lg mb-6">{error || 'No evaluation data available'}</p>
+          <Button onClick={() => navigate('/')}>Return Home</Button>
         </div>
       </div>
     );
   }
 
-  const getScoreColor = (score?: number) => {
-    if (!score) return 'text-gray-400';
-    if (score >= 8) return 'text-green-400';
-    if (score >= 6) return 'text-[#05fcd3]';
-    if (score >= 4) return 'text-yellow-400';
-    return 'text-red-400';
-  };
+  const scoreCards = [
+    { icon: Target, label: 'Technical', score: evaluation.technical_score },
+    { icon: MessageSquare, label: 'Communication', score: evaluation.communication_score },
+    { icon: TrendingUp, label: 'Role Fit', score: evaluation.role_fit_score },
+    ...(evaluation.presence_score != null
+      ? [{ icon: Video, label: 'Presence', score: evaluation.presence_score }]
+      : []),
+  ];
 
-  const getScoreWidth = (score?: number) => {
-    if (!score) return '0%';
-    return `${(score / 10) * 100}%`;
-  };
+  const radarAxes = [
+    { label: 'Technical', value: evaluation.technical_score },
+    { label: 'Communication', value: evaluation.communication_score },
+    { label: 'Role Fit', value: evaluation.role_fit_score },
+    ...(evaluation.presence_score != null
+      ? [{ label: 'Presence', value: evaluation.presence_score }]
+      : []),
+  ];
+
+  const cardBaseDelay = 900;
 
   return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-900 to-black">
-        <div className="absolute inset-0">
-          {[...Array(30)].map((_, i) => (
+    <PageContainer className="max-w-5xl">
+      <div className="text-center mb-2">
+        <Badge className="mb-4">Step 4 — Results</Badge>
+        <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Interview Results</h1>
+        <p className="text-gray-400">Role: {state.role}</p>
+      </div>
+
+      <Card variant="elevated" padding="lg" className="mb-6 overflow-hidden">
+        <ResultsHeroReveal evaluation={evaluation} />
+
+        <div className="grid lg:grid-cols-2 gap-8 items-center border-t border-white/5 pt-8">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 text-center lg:text-left">
+              Performance profile
+            </h3>
+            <ScoreRadarChart axes={radarAxes} size={260} className="mx-auto lg:mx-0" />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+            {scoreCards.map((card, index) => (
+              <AnimatedScoreCard
+                key={card.label}
+                icon={card.icon}
+                label={card.label}
+                score={card.score}
+                delayMs={cardBaseDelay + index * 120}
+                getScoreColor={getScoreColor}
+              />
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {evaluation.feedback && (
+        <FeedbackReveal
+          title="Verbal Feedback"
+          content={evaluation.feedback}
+          variant="verbal"
+          delayMs={cardBaseDelay + scoreCards.length * 120 + 200}
+        />
+      )}
+
+      {evaluation.nonverbal_feedback && (
+        <FeedbackReveal
+          title="Body Language & Interviewer Perspective"
+          content={evaluation.nonverbal_feedback}
+          variant="nonverbal"
+          delayMs={cardBaseDelay + scoreCards.length * 120 + 350}
+        />
+      )}
+
+      {evaluation.raw_evaluation && !evaluation.feedback && !evaluation.nonverbal_feedback && (
+        <FeedbackReveal
+          title="Detailed Evaluation"
+          content={evaluation.raw_evaluation}
+          delayMs={cardBaseDelay + 200}
+        />
+      )}
+
+      <Card variant="default" padding="md" className="mb-6 animate-fade-in">
+        <h3 className="text-xl font-semibold text-brand mb-4">Interview Transcript</h3>
+        <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+          {state.qaList.map((qa, index) => (
             <div
-              key={i}
-              className="absolute rounded-full bg-[#05fcd3] animate-pulse"
-              style={{
-                width: Math.random() * 3 + 1 + 'px',
-                height: Math.random() * 3 + 1 + 'px',
-                left: Math.random() * 100 + '%',
-                top: Math.random() * 100 + '%',
-                animationDelay: Math.random() * 3 + 's',
-                animationDuration: Math.random() * 4 + 2 + 's',
-              }}
-            />
+              key={index}
+              className="bg-surface-overlay border border-brand-border/50 rounded-lg p-4"
+            >
+              <p className="text-brand font-semibold mb-2 text-sm">
+                Q{index + 1}: {qa.question}
+              </p>
+              <p className="text-gray-200 text-sm ml-2">{qa.answer}</p>
+            </div>
           ))}
         </div>
+      </Card>
+
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Button variant="ghost" fullWidth size="lg" onClick={() => navigate('/')}>
+          <Home className="w-5 h-5" />
+          Return to Home
+        </Button>
+        <Button fullWidth size="lg" onClick={handleDownloadPDF}>
+          <Download className="w-5 h-5" />
+          Download Result (PDF)
+        </Button>
       </div>
-
-      <div className="relative z-10 container mx-auto px-4 py-12">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <Award className="w-20 h-20 text-[#05fcd3] mx-auto mb-4 animate-pulse" />
-            <h1 className="text-5xl font-bold text-white mb-3">Interview Results</h1>
-            <p className="text-gray-400 text-lg">Role: {state.role}</p>
-          </div>
-
-          <div className="bg-gray-900/50 backdrop-blur-sm border border-[#05fcd3]/20 rounded-2xl p-8 shadow-2xl mb-6">
-            <div className="text-center mb-8">
-              <p className="text-gray-400 mb-2">Final Score</p>
-              <div className="text-7xl font-bold text-[#05fcd3] mb-2">
-                {evaluation.final_score?.toFixed(1) || 'N/A'}
-                {evaluation.final_score && <span className="text-3xl">/10</span>}
-              </div>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-black/50 border border-[#05fcd3]/30 rounded-lg p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <Target className="w-6 h-6 text-[#05fcd3]" />
-                  <h3 className="text-white font-semibold">Technical Score</h3>
-                </div>
-                <div className={`text-4xl font-bold mb-2 ${getScoreColor(evaluation.technical_score)}`}>
-                  {evaluation.technical_score?.toFixed(1) || 'N/A'}
-                  {evaluation.technical_score && <span className="text-xl">/10</span>}
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2">
-                  <div
-                    className="bg-[#05fcd3] h-2 rounded-full transition-all duration-1000"
-                    style={{ width: getScoreWidth(evaluation.technical_score) }}
-                  />
-                </div>
-              </div>
-
-              <div className="bg-black/50 border border-[#05fcd3]/30 rounded-lg p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <MessageSquare className="w-6 h-6 text-[#05fcd3]" />
-                  <h3 className="text-white font-semibold">Communication</h3>
-                </div>
-                <div className={`text-4xl font-bold mb-2 ${getScoreColor(evaluation.communication_score)}`}>
-                  {evaluation.communication_score?.toFixed(1) || 'N/A'}
-                  {evaluation.communication_score && <span className="text-xl">/10</span>}
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2">
-                  <div
-                    className="bg-[#05fcd3] h-2 rounded-full transition-all duration-1000"
-                    style={{ width: getScoreWidth(evaluation.communication_score) }}
-                  />
-                </div>
-              </div>
-
-              <div className="bg-black/50 border border-[#05fcd3]/30 rounded-lg p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <TrendingUp className="w-6 h-6 text-[#05fcd3]" />
-                  <h3 className="text-white font-semibold">Role Fit</h3>
-                </div>
-                <div className={`text-4xl font-bold mb-2 ${getScoreColor(evaluation.role_fit_score)}`}>
-                  {evaluation.role_fit_score?.toFixed(1) || 'N/A'}
-                  {evaluation.role_fit_score && <span className="text-xl">/10</span>}
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2">
-                  <div
-                    className="bg-[#05fcd3] h-2 rounded-full transition-all duration-1000"
-                    style={{ width: getScoreWidth(evaluation.role_fit_score) }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {evaluation.feedback && (
-              <div className="bg-black/50 border border-[#05fcd3]/30 rounded-lg p-6 mb-6">
-                <h3 className="text-xl font-semibold text-[#05fcd3] mb-3">Feedback</h3>
-                <p className="text-white leading-relaxed whitespace-pre-line">{evaluation.feedback}</p>
-              </div>
-            )}
-
-            {evaluation.raw_evaluation && (
-              <div className="bg-black/50 border border-[#05fcd3]/30 rounded-lg p-6">
-                <h3 className="text-xl font-semibold text-[#05fcd3] mb-3">Detailed Evaluation</h3>
-                <p className="text-white leading-relaxed whitespace-pre-line">{evaluation.raw_evaluation}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gray-900/50 backdrop-blur-sm border border-[#05fcd3]/20 rounded-2xl p-6 mb-6">
-            <h3 className="text-xl font-semibold text-[#05fcd3] mb-4">Interview Transcript</h3>
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {state.qaList.map((qa, index) => (
-                <div key={index} className="bg-black/50 border border-[#05fcd3]/20 rounded-lg p-4">
-                  <p className="text-[#05fcd3] font-semibold mb-2">Q{index + 1}: {qa.question}</p>
-                  <p className="text-white ml-4">{qa.answer}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => navigate('/')}
-              className="flex-1 py-4 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
-            >
-              <Home className="w-5 h-5" />
-              Return to Home
-            </button>
-            <button
-              onClick={handleDownloadPDF}
-              className="flex-1 py-4 bg-[#05fcd3] text-black font-semibold rounded-lg hover:bg-[#04dab8] transition-all duration-300 flex items-center justify-center gap-2 shadow-lg shadow-[#05fcd3]/30"
-            >
-              <Download className="w-5 h-5" />
-              Download Result (PDF)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 };
 
 export default ResultsPage;
+
